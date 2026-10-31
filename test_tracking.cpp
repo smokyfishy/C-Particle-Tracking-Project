@@ -87,6 +87,20 @@ static void test_shifting_all_hits_gives_same_answer() {
     check(close(best.score, 0.0), "shifted event score is 0");
 }
 
+static void test_threshold_rejects_poor_candidates() {
+    // Every combination here is far from straight; the best is still chosen,
+    // but the threshold should reject it.
+    const Layer inner{{{10, 0.0}, {11, 0.1}, {12, 0.2}}};
+    const Hit middle{20, 5.0};
+    const Layer outer{{{30, 0.0}, {31, 0.1}, {32, 0.2}}};
+
+    Candidate best = select_best(inner, middle, outer);
+
+    check(!is_accepted(best, 0.1), "poor best candidate is rejected");
+    check(is_accepted({10, 20, 30, 0.0}, 0.1), "perfect candidate is accepted");
+    check(is_accepted({10, 20, 30, 0.1}, 0.1), "score equal to threshold is accepted");
+}
+
 int main() {
     test_straight_triplet_scores_zero();
     test_bent_triplet_scores_positive();
@@ -95,6 +109,7 @@ int main() {
     test_inputs_are_not_modified();
     test_tie_keeps_first_candidate();
     test_shifting_all_hits_gives_same_answer();
+    test_threshold_rejects_poor_candidates();
 
     if (failures == 0) {
         std::printf("All tests passed.\n");

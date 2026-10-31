@@ -30,4 +30,8 @@ double triplet_score(const Hit& first, const Hit& middle, const Hit& last);
 // the smallest score. Exact ties keep the first candidate encountered.
 Candidate select_best(const Layer& inner, const Hit& middle, const Layer& outer);
 
+// The search above always returns *something*, even if every triplet is bad.
+// This lets the caller reject candidates whose score is above max_score.
+bool is_accepted(const Candidate& candidate, double max_score);
+
 #endif

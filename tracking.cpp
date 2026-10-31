@@ -26,3 +26,7 @@ Candidate select_best(const Layer& inner, const Hit& middle, const Layer& outer)
 
     return best;
 }
+
+bool is_accepted(const Candidate& candidate, double max_score) {
+    return candidate.score <= max_score;
+}
