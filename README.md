@@ -1,27 +1,21 @@
 # C++ Particle Tracking Project
 
-A small C++ program that picks the combination of detector hits that best
-fits a straight particle path across three layers.
+When a particle flies through a detector, it leaves a trail of hits. The tricky
+part is figuring out which hits belong to the same particle. This is a small
+C++ program I wrote to try a simple version of that problem.
 
-It's a simplified learning project using synthetic data. I built it to
-practice the software side of particle-tracking algorithms: representing
-measurements, writing a small numerical algorithm, testing it, and measuring
-how it behaves.
+## The idea
 
-## The problem
+Picture three detector layers, evenly spaced:
 
-A particle passes through three equally spaced detector layers. Each layer
-records possible measurements called **hits**. The task is to find which hits
-belong to the same particle.
+- The inner layer has 3 hits
+- The middle layer has 1 hit
+- The outer layer has 3 hits
 
-- The **inner** layer has 3 possible hits.
-- The **middle** layer has 1 already-selected hit.
-- The **outer** layer has 3 possible hits.
+I want to pick one inner hit and one outer hit that make a straight line with
+the middle hit. That's 3 x 3 = 9 combinations to try.
 
-That gives 3 × 3 = **9 possible triplets**. The program scores every one and
-keeps the best.
-
-Each hit has an ID and one position, `z`:
+Each hit is just an ID and a position:
 
 ```cpp
 struct Hit {
@@ -30,143 +24,86 @@ struct Hit {
 };
 ```
 
-## How a triplet is scored
+## How it decides
 
-If the path is straight and the layers are equally spaced, the middle hit
-should sit halfway between the other two:
-
-```
-z_middle = (z_first + z_last) / 2   =>   z_first - 2*z_middle + z_last = 0
-```
-
-So each triplet gets the score:
+If three points are on a straight line, the middle one sits exactly halfway
+between the other two. So for each combination I calculate:
 
 ```
-score = | z_first - 2*z_middle + z_last |
+score = | z_first - 2 * z_middle + z_last |
 ```
 
-**Smaller is better.** A score of 0 means a perfect straight line. The score
-measures geometric mismatch. It is not a probability.
+A score of 0 means a perfect straight line, and bigger means more bent. The
+program tries all 9 combinations and keeps the one with the lowest score.
 
 ## Example
 
-| Layer  | Hits `(ID, z)`                          |
-|--------|-----------------------------------------|
-| Inner  | `(10, 0.125)`, `(11, 0.5)`, `(12, -0.25)` |
-| Middle | `(20, 0.25)`                            |
-| Outer  | `(30, 0.375)`, `(31, 0.875)`, `(32, -0.5)` |
+| Layer  | Hits (ID, z)                           |
+|--------|----------------------------------------|
+| Inner  | (10, 0.125), (11, 0.5), (12, -0.25)    |
+| Middle | (20, 0.25)                             |
+| Outer  | (30, 0.375), (31, 0.875), (32, -0.5)   |
 
-Hits 10, 20, 30 step up by 0.125 each layer, so they fit perfectly:
+Hits 10, 20 and 30 go up by 0.125 each step, so they make a perfect line:
 
 ```
 first_id,middle_id,last_id,score,accepted
 10,20,30,0.000000,yes
 ```
 
-## Files
+## Running it
 
-| File                | What it does                                              |
-|---------------------|-----------------------------------------------------------|
-| `tracking.hpp`      | Declares `Hit`, `Candidate`, `Layer` and the functions    |
-| `tracking.cpp`      | Implements scoring, the search, and the threshold check   |
-| `main.cpp`          | Runs the example event and prints the result              |
-| `test_tracking.cpp` | Unit tests                                                |
-| `experiment.cpp`    | Noise study on 60,000 synthetic events                    |
-| `Makefile`          | Build, run, and test commands                             |
-
-The core is two functions:
-
-```cpp
-double triplet_score(const Hit& first, const Hit& middle, const Hit& last);
-Candidate select_best(const Layer& inner, const Hit& middle, const Layer& outer);
-```
-
-`select_best` uses two nested loops over the inner and outer layers. It keeps
-a candidate only when its score is *strictly* smaller than the best so far,
-so if two triplets tie exactly, the first one found wins. Inputs are passed
-by `const` reference, so they aren't copied and can't be changed.
-
-## Build and run (Linux)
+I built this on Linux with g++.
 
 ```bash
-make run          # build and run the example
-make test         # build and run the unit tests
-make experiment   # run the noise study, saves results/noise_study.csv
-make clean
+make run          # run the example
+make test         # run the tests
+make experiment   # run the noise experiment
 ```
 
-Or without `make`:
+## What's in here
 
-```bash
-mkdir -p build
-g++ -std=c++17 -Wall -Wextra -Wpedantic main.cpp tracking.cpp -o build/tracker
-./build/tracker
-```
+- `tracking.hpp` / `tracking.cpp`: the main code (scoring and picking the best)
+- `main.cpp`: runs the example above
+- `test_tracking.cpp`: tests to make sure everything works
+- `experiment.cpp`: the noise experiment described below
 
-## Tests
+## Things I added
 
-`test_tracking.cpp` checks:
+**A cutoff for bad matches.** The program always picks *something*, even if
+every combination is bad. So I added a limit: if the best score is above 0.1,
+the match gets rejected.
 
-- straight triplets score 0 and bent ones score what they should
-- negative positions
-- the example selects hits 10, 20, 30 with score 0
-- the input hits are not modified
-- exact ties keep the first candidate
-- shifting every hit by the same amount doesn't change the answer
-- the threshold accepts good candidates and rejects poor ones
+**A noise experiment.** Real detectors aren't perfect. Each measurement is
+off by a little bit. I wanted to see how much that hurts, so I made 10,000
+fake events for each noise level. Each event has one real straight track plus
+some random fake hits. Then I counted how often the program found the real
+track.
 
-## Extension 1: rejecting poor candidates
+| How much noise | Found the real track |
+|----------------|----------------------|
+| none           | 100%                 |
+| 0.01           | 93.5%                |
+| 0.02           | 87.4%                |
+| 0.05           | 73.9%                |
+| 0.10           | 57.2%                |
+| 0.20           | 38.3%                |
 
-`select_best` always returns *something*, even if every triplet is bad.
-`is_accepted(candidate, max_score)` lets the caller reject a candidate whose
-score is above a threshold (`max_score = 0.1` in `main.cpp`).
+What surprised me:
 
-## Extension 2: noise experiment
+- Even a tiny bit of noise causes mistakes. Sometimes the fake hits happen to
+  line up better than the real ones.
+- My cutoff didn't help with that. When a fake match is just as straight as a
+  real one, the score can't tell them apart.
 
-Real detectors measure positions with some error. To see how the algorithm
-copes, `experiment.cpp` generates 10,000 synthetic events per noise level.
-Each event has:
+## What it doesn't do (yet)
 
-- one real straight track, with a random start and slope
-- two random fake hits in both the inner and outer layers
-- Gaussian noise (standard deviation = `noise`) added to every real hit
+This is a simplified learning project with made-up data. It uses one
+coordinate, three layers and only a few hits. It doesn't use real detector
+data or run on special hardware.
 
-It counts how often `select_best` picks the real track, and how often the
-chosen candidate passes the 0.1 threshold. The random seed is fixed, so the
-results are reproducible.
+Some things I'd like to try next:
 
-| Noise (σ) | Picked real track | Passed threshold |
-|-----------|-------------------|------------------|
-| 0.00      | 100.0%            | 100.0%           |
-| 0.01      | 93.5%             | 100.0%           |
-| 0.02      | 87.4%             | 97.3%            |
-| 0.05      | 73.9%             | 71.0%            |
-| 0.10      | 57.2%             | 50.8%            |
-| 0.20      | 38.3%             | 40.8%            |
-
-**What I learned:**
-
-- With no noise, the real track scores 0 and always wins. Once noise is
-  added, a triplet that includes a fake hit can line up by chance and score
-  better than the real one. Accuracy falls quickly: about 1 in 15 events is
-  wrong at σ = 0.01.
-- At low noise, the threshold accepts nearly everything, *including the wrong
-  picks*. A score threshold alone can't tell a real track from a lucky fake
-  one that's just as straight.
-- Choosing the threshold is a tradeoff. It should match the expected
-  measurement noise, or it starts rejecting real tracks.
-
-## Limitations
-
-This runs on a CPU with one coordinate, three layers, and one fixed middle
-hit. It doesn't reconstruct full detector events, use real data, or run on
-hardware.
-
-## Possible next steps
-
-- Return the two best candidates and use the gap between their scores as a
-  confidence measure.
-- Reduce numerical precision (for example, `float` or fixed-point integers)
-  and measure how often the selected candidate changes. This matters for
-  FPGA implementations.
-- Explore a hardware implementation and measure its resource use and latency.
+- Keep the top two matches and see how close they are
+- Use lower-precision numbers and check whether the answers change. This
+  matters for running tracking on hardware like FPGAs.
